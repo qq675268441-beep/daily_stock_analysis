@@ -1,0 +1,83 @@
+name: Money Scanner
+
+on:
+  schedule:
+    # 每天美股开盘后15分钟 (UTC 14:45)
+    - cron: '45 14 * * 1-5'
+  workflow_dispatch: # 允许手机手动点按钮运行
+
+jobs:
+  scan-market:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Libraries
+        run: pip install yfinance pandas pandas_ta tabulate
+
+      - name: Run Scanner Script
+        run: |
+          cat <<EOF > scanner.py
+          import yfinance as yf
+          import pandas as pd
+          import pandas_ta as ta
+          
+          # === 🎯 你的搞钱目标池 ===
+          tickers = [
+              "BBAI", "IVDA", "MARA", "CLSK", "COIN", "MSTR", 
+              "SOUN", "PLTR", "AI", "AMD", "NVDA", "YINN", "BABA", "GME"
+          ]
+
+          print(f"🚀 正在扫描 {len(tickers)} 只热门股...")
+          results = []
+          
+          try:
+              data = yf.download(tickers, period="3mo", interval="1d", group_by='ticker', progress=False)
+              for symbol in tickers:
+                  try:
+                      df = data[symbol].copy()
+                      if len(df) < 20: continue
+                      
+                      price = df['Close'].iloc[-1]
+                      prev_close = df['Close'].iloc[-2]
+                      change_pct = ((price - prev_close) / prev_close) * 100
+                      rsi = ta.rsi(df['Close'], length=14).iloc[-1]
+                      
+                      # 简单的放量计算
+                      avg_vol = df['Volume'].iloc[-11:-1].mean()
+                      vol_ratio = df['Volume'].iloc[-1] / avg_vol if avg_vol > 0 else 0
+
+                      signal = "⚪"
+                      if vol_ratio > 1.5 and change_pct > 3: signal = "🔥 追涨"
+                      elif rsi < 30: signal = "🟢 抄底"
+                      elif rsi > 75: signal = "🔴 逃顶"
+
+                      if signal != "⚪" or symbol in ["BBAI", "IVDA"]:
+                          results.append({"股票": symbol, "价格": price, "涨跌": change_pct, "RSI": rsi, "信号": signal})
+                  except: continue
+          except: pass
+
+          if results:
+              df_res = pd.DataFrame(results)
+              df_res = df_res.sort_values(by="涨跌", ascending=False)
+              print(df_res.to_markdown(index=False))
+              with open("scan_result.md", "w") as f:
+                  f.write("### 💰 今日机会\n" + df_res.to_markdown(index=False))
+          else:
+              print("今天无暴利机会。")
+          EOF
+          
+          python scanner.py
+
+      - name: Show Result
+        if: always()
+        run: |
+          if [ -f scan_result.md ]; then
+            cat scan_result.md >> $GITHUB_STEP_SUMMARY
+          fi
