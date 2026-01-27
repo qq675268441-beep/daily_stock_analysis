@@ -1,14 +1,20 @@
-name: Money Scanner
+name: Money Scanner (Telegram + Email)
 
 on:
   schedule:
-    # 每天美股开盘后15分钟 (UTC 14:45)
-    - cron: '45 14 * * 1-5'
+    - cron: '45 14 * * 1-5' # 每天美股开盘后15分钟自动跑
   workflow_dispatch: # 允许手机手动点按钮运行
 
 jobs:
   scan-market:
     runs-on: ubuntu-latest
+    # 这里会自动读取你在后台填写的密码
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      MAIL_USER: ${{ secrets.MAIL_USER }}
+      MAIL_PASS: ${{ secrets.MAIL_PASS }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -19,22 +25,27 @@ jobs:
           python-version: '3.9'
 
       - name: Install Libraries
-        run: pip install yfinance pandas pandas_ta tabulate
+        run: pip install yfinance pandas pandas_ta tabulate requests
 
-      - name: Run Scanner Script
+      - name: Run Scanner & Push
         run: |
           cat <<EOF > scanner.py
           import yfinance as yf
           import pandas as pd
           import pandas_ta as ta
-          
-          # === 🎯 你的搞钱目标池 ===
+          import requests
+          import smtplib
+          from email.mime.text import MIMEText
+          from email.header import Header
+          import os
+
+          # === 🎯 扫描目标 ===
           tickers = [
               "BBAI", "IVDA", "MARA", "CLSK", "COIN", "MSTR", 
               "SOUN", "PLTR", "AI", "AMD", "NVDA", "YINN", "BABA", "GME"
           ]
 
-          print(f"🚀 正在扫描 {len(tickers)} 只热门股...")
+          print(f"🚀 正在扫描...")
           results = []
           
           try:
@@ -45,11 +56,9 @@ jobs:
                       if len(df) < 20: continue
                       
                       price = df['Close'].iloc[-1]
-                      prev_close = df['Close'].iloc[-2]
-                      change_pct = ((price - prev_close) / prev_close) * 100
+                      change_pct = ((price - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
                       rsi = ta.rsi(df['Close'], length=14).iloc[-1]
                       
-                      # 简单的放量计算
                       avg_vol = df['Volume'].iloc[-11:-1].mean()
                       vol_ratio = df['Volume'].iloc[-1] / avg_vol if avg_vol > 0 else 0
 
@@ -59,23 +68,69 @@ jobs:
                       elif rsi > 75: signal = "🔴 逃顶"
 
                       if signal != "⚪" or symbol in ["BBAI", "IVDA"]:
-                          results.append({"股票": symbol, "价格": price, "涨跌": change_pct, "RSI": rsi, "信号": signal})
+                          results.append({
+                              "Stock": symbol, 
+                              "Price": price, 
+                              "Chg": change_pct, 
+                              "Signal": signal
+                          })
                   except: continue
           except: pass
 
+          # === 生成报告 ===
           if results:
               df_res = pd.DataFrame(results)
-              df_res = df_res.sort_values(by="涨跌", ascending=False)
-              print(df_res.to_markdown(index=False))
+              
+              # 文本内容
+              msg_content = "💰 搞钱机会扫描 💰\n\n"
+              for _, row in df_res.iterrows():
+                  icon = row['Signal'].split(' ')[0]
+                  msg_content += f"{icon} {row['Stock']}: ${row['Price']:.2f} ({row['Chg']:+.1f}%)\n"
+                  msg_content += f"   信号: {row['Signal']}\n\n"
+              
+              print(msg_content)
+              
+              # 1. 推送电报
+              tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+              tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+              if tg_token and tg_chat_id:
+                  try:
+                      url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+                      requests.post(url, data={"chat_id": tg_chat_id, "text": msg_content})
+                      print("✅ 电报推送成功")
+                  except: print("❌ 电报推送失败")
+
+              # 2. 推送 QQ 邮箱
+              mail_user = os.environ.get("MAIL_USER")
+              mail_pass = os.environ.get("MAIL_PASS")
+              
+              if mail_user and mail_pass:
+                  try:
+                      message = MIMEText(msg_content, 'plain', 'utf-8')
+                      message['From'] = Header("Github搞钱助手", 'utf-8')
+                      message['To'] = Header("Boss", 'utf-8')
+                      message['Subject'] = Header('🔥 今日美股机会报告', 'utf-8')
+                      
+                      # 连接 QQ 邮箱服务器 (SSL加密端口 465)
+                      smtpObj = smtplib.SMTP_SSL('smtp.qq.com', 465)
+                      smtpObj.login(mail_user, mail_pass)
+                      smtpObj.sendmail(mail_user, [mail_user], message.as_string())
+                      print("✅ 邮件发送成功")
+                  except Exception as e:
+                      print(f"❌ 邮件发送失败: {e}")
+              else:
+                  print("⚠️ 未配置邮箱 Secret，跳过邮件发送")
+
+              # GitHub 页面显示
               with open("scan_result.md", "w") as f:
-                  f.write("### 💰 今日机会\n" + df_res.to_markdown(index=False))
+                  f.write(df_res.to_markdown(index=False))
           else:
-              print("今天无暴利机会。")
+              print("无机会。")
           EOF
           
           python scanner.py
 
-      - name: Show Result
+      - name: Show Summary
         if: always()
         run: |
           if [ -f scan_result.md ]; then
