@@ -24,7 +24,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install Libraries
-        run: pip install yfinance pandas pandas_ta tabulate requests
+        run: pip install "numpy<2" yfinance pandas pandas_ta tabulate requests
 
       # 👇 看这里，我已经改成了运行 money.py
       - name: Run Main Script
