@@ -1,12 +1,16 @@
-name: Final Run
+name: Global Money Scanner
 
 on:
   schedule:
+    # 这里设置了两个时间点 (UTC时间):
+    # 1. UTC 08:30 = 北京时间 16:30 (港股/A股 收盘后)
+    # 2. UTC 14:45 = 北京时间 22:45 (美股 开盘15分钟后)
+    - cron: '30 8 * * 1-5'
     - cron: '45 14 * * 1-5'
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动点击运行
 
 jobs:
-  run-scan:
+  scan-job:
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -23,9 +27,9 @@ jobs:
         with:
           python-version: '3.9'
 
-      # 👇 这一行是关键！修复了所有的报错！
       - name: Install Libraries
-        run: pip install "numpy<2" yfinance pandas pandas_ta tabulate requests
+        # 只安装最稳的库
+        run: pip install yfinance pandas requests
 
       - name: Run Script
         run: python run.py
