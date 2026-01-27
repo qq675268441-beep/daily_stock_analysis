@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 import smtplib
 from email.mime.text import MIMEText
-from email.header import Header
+from email.utils import formataddr  # 👈 新增这个工具
 
 # === 🎯 扫描目标 ===
 tickers = ["BBAI", "IVDA", "MARA", "CLSK", "COIN", "SOUN", "PLTR", "AI", "AMD", "NVDA", "YINN", "BABA", "GME"]
@@ -49,7 +49,7 @@ except: pass
 # === 生成报告 ===
 if results:
     df_res = pd.DataFrame(results)
-    msg = "💰 搞钱扫描 (诊断版) 💰\n\n"
+    msg = "💰 搞钱扫描 (最终版) 💰\n\n"
     for _, r in df_res.iterrows():
         msg += f"{r['Signal'].split(' ')[0]} {r['Stock']}: ${r['Price']:.2f} ({r['Chg']:+.1f}%)\n   {r['Signal']}\n\n"
     
@@ -62,45 +62,29 @@ if results:
         try:
             requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage", data={"chat_id": tg_chat, "text": msg})
             print("✅ TG 发送成功")
-        except Exception as e: print(f"❌ TG 发送失败: {e}")
+        except: pass
 
-    # 2. QQ 邮箱 (开启详细诊断)
+    # 2. QQ 邮箱
     print("-" * 20)
-    print("📧 开始尝试发送邮件...")
-    
     m_user = os.environ.get("MAIL_USER")
     m_pass = os.environ.get("MAIL_PASS")
     
-    # 诊断步骤 1: 检查密钥是否存在
-    if not m_user:
-        print("❌ 错误: 未找到 MAIL_USER (QQ号)！请去 Settings -> Secrets 检查变量名。")
-    elif not m_pass:
-        print("❌ 错误: 未找到 MAIL_PASS (授权码)！请去 Settings -> Secrets 检查变量名。")
-    else:
-        print(f"✅ 找到邮箱配置: {m_user[:3]}***@qq.com")
+    if m_user and m_pass:
         try:
             email = MIMEText(msg, 'plain', 'utf-8')
-            email['From'] = Header("搞钱助手", 'utf-8')
-            email['To'] = Header("Boss", 'utf-8')
-            email['Subject'] = Header('🔥 美股扫描结果', 'utf-8')
+            # 👇 关键修改：用标准格式生成发件人
+            email['From'] = formataddr(["搞钱助手", m_user])
+            email['To'] = formataddr(["Boss", m_user])
+            email['Subject'] = "🔥 美股机会报告"
             
-            # 诊断步骤 2: 连接服务器
-            print("🔄 正在连接 QQ 服务器...")
             smtp = smtplib.SMTP_SSL('smtp.qq.com', 465)
-            
-            # 诊断步骤 3: 登录
-            print("🔄 正在登录...")
             smtp.login(m_user, m_pass)
-            
-            # 诊断步骤 4: 发送
-            print("🔄 正在发送...")
             smtp.sendmail(m_user, [m_user], email.as_string())
-            print("✅ 邮件发送成功！快去收信！")
+            print("✅ 邮件发送成功！")
             smtp.quit()
-        except smtplib.SMTPAuthenticationError:
-            print("❌ 登录失败！原因：授权码错误。请不要用QQ密码，一定要用网页版生成的16位授权码！")
         except Exception as e:
-            print(f"❌ 发送过程报错: {e}")
-
+            print(f"❌ 发送报错: {e}")
+    else:
+        print("⚠️ 邮箱未配置")
 else:
     print("无机会")
