@@ -2,8 +2,8 @@ name: Run Scanner
 
 on:
   schedule:
-    - cron: '45 14 * * 1-5' # 每天美股开盘后15分钟
-  workflow_dispatch: # 允许手动运行
+    - cron: '45 14 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   run-script:
@@ -26,6 +26,6 @@ jobs:
       - name: Install Libraries
         run: pip install yfinance pandas pandas_ta tabulate requests
 
-      # 注意：这里我已经帮你改成运行 scanner.py 了
+      # 👇 看这里，我已经改成了运行 money.py
       - name: Run Main Script
-        run: python scanner.py
+        run: python money.py
