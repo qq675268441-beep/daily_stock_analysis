@@ -1,4 +1,4 @@
-name: Run Scanner
+name: Money Scanner Final
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-script:
+  scan-job:
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -15,7 +15,7 @@ jobs:
       MAIL_PASS: ${{ secrets.MAIL_PASS }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -23,9 +23,75 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install Libraries
+      # 👇 这里的 numpy<2 是修复报错的关键
+      - name: Install Fixed Libraries
         run: pip install "numpy<2" yfinance pandas pandas_ta tabulate requests
 
-      # 👇 看这里，我已经改成了运行 money.py
-      - name: Run Main Script
-        run: python money.py
+      - name: Run Script
+        run: |
+          cat <<EOF > run_scan.py
+          import yfinance as yf
+          import pandas as pd
+          import pandas_ta as ta
+          import requests
+          import smtplib
+          from email.mime.text import MIMEText
+          from email.header import Header
+          import os
+
+          tickers = ["BBAI", "IVDA", "MARA", "CLSK", "COIN", "SOUN", "PLTR", "AI", "AMD", "NVDA", "YINN", "BABA", "GME"]
+          print("🚀 开始扫描...")
+          results = []
+
+          try:
+              data = yf.download(tickers, period="3mo", interval="1d", group_by='ticker', progress=False)
+              for symbol in tickers:
+                  try:
+                      df = data[symbol].copy()
+                      if len(df) < 20: continue
+                      price = df['Close'].iloc[-1]
+                      prev = df['Close'].iloc[-2]
+                      chg = ((price - prev) / prev) * 100
+                      rsi = ta.rsi(df['Close'], length=14).iloc[-1]
+                      vol_ratio = df['Volume'].iloc[-1] / df['Volume'].iloc[-11:-1].mean()
+
+                      signal = "⚪"
+                      if vol_ratio > 1.5 and chg > 3: signal = "🔥 追涨"
+                      elif rsi < 30: signal = "🟢 抄底"
+                      elif rsi > 75: signal = "🔴 逃顶"
+
+                      if signal != "⚪" or symbol in ["BBAI", "IVDA"]:
+                          results.append({"Stock": symbol, "Price": price, "Chg": chg, "Signal": signal})
+                  except: continue
+          except: pass
+
+          if results:
+              df_res = pd.DataFrame(results)
+              msg = "💰 搞钱扫描 (修复版) 💰\n\n"
+              for _, r in df_res.iterrows():
+                  msg += f"{r['Signal'].split(' ')[0]} {r['Stock']}: ${r['Price']:.2f} ({r['Chg']:+.1f}%)\n   {r['Signal']}\n\n"
+              print(msg)
+
+              # Telegram
+              tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+              tg_chat = os.environ.get("TELEGRAM_CHAT_ID")
+              if tg_token and tg_chat:
+                  requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage", data={"chat_id": tg_chat, "text": msg})
+
+              # QQ Email
+              m_user = os.environ.get("MAIL_USER")
+              m_pass = os.environ.get("MAIL_PASS")
+              if m_user and m_pass:
+                  try:
+                      email = MIMEText(msg, 'plain', 'utf-8')
+                      email['Subject'] = Header('🔥 美股机会', 'utf-8')
+                      smtp = smtplib.SMTP_SSL('smtp.qq.com', 465)
+                      smtp.login(m_user, m_pass)
+                      smtp.sendmail(m_user, [m_user], email.as_string())
+                      print("✅ 邮件已发送")
+                  except Exception as e: print(f"❌ 邮件失败: {e}")
+          else:
+              print("无机会")
+          EOF
+
+          python run_scan.py
