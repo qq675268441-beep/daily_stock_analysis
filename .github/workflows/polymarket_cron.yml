@@ -1,0 +1,28 @@
+name: Polymarket 战术雷达
+
+on:
+  schedule:
+    # 设置巡航频率：每 15 分钟扫描一次 (Cron 语法)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # 允许手动点火测试
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出武器库
+        uses: actions/checkout@v3
+        
+      - name: 装填 Python 弹药
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: 安装依赖
+        run: pip install requests
+        
+      - name: 启动雷达扫描
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python polymarket_radar.py
