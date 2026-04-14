@@ -1,0 +1,33 @@
+name: 全自动气象套利雷达 (火神炮版)
+
+on:
+  workflow_dispatch: # 战术保留：允许你在网页上随时点击按钮“手动开火”测试
+  schedule:
+    # 物理定时器：GFS 气象超算每 6 小时更新一次数据。
+    # 设定在更新后的 15 分钟（00:15, 06:15, 12:15, 18:15 UTC）准时扫盘，实现极致的信息差套利。
+    - cron: '15 0,6,12,18 * * *'
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出战区代码
+        uses: actions/checkout@v3
+
+      - name: 架设 Python 狙击阵地
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 装填弹药 (安装依赖包)
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: 全自动开火拦截 (运行核心逻辑)
+        env:
+          # 自动调取你之前已经配置好的 Telegram 战术通讯密钥
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # 注意：这里必须与你刚刚保存的 Python 文件名完全一致！
+        run: python weather_auto_sniper.py
